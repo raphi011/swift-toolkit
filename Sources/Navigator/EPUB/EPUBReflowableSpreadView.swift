@@ -433,6 +433,22 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
     // MARK: - UIScrollViewDelegate
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Hold the page steady against WebKit's programmatic selection
+        // auto-scroll. When a selection handle nears the viewport edge, WebKit
+        // scrolls this paginated scroll view via `setContentOffset` (which
+        // ignores `isScrollEnabled`), advancing the page. While a selection is
+        // active and the scroll is not user-driven, snap the offset back to the
+        // anchor captured when the selection began, and skip the page-change
+        // notification. A real swipe (isDragging/isTracking) is left alone — it
+        // clears the selection first via `scrollViewWillBeginDragging`.
+        if !viewModel.scroll,
+           let anchor = selectionScrollAnchor,
+           !scrollView.isDragging, !scrollView.isTracking,
+           abs(scrollView.contentOffset.x - anchor.x) > 0.5
+        {
+            scrollView.setContentOffset(anchor, animated: false)
+            return
+        }
         super.scrollViewDidScroll(scrollView)
         setNeedsNotifyPagesDidChange()
     }

@@ -48,6 +48,11 @@ class EPUBSpreadView: UIView, Loggable, PageView {
     let spread: EPUBSpread
     private(set) var focusedResource: ReadingOrder.Index?
 
+    /// Content offset captured when a text selection becomes active, used to
+    /// pin the page against WebKit's programmatic selection auto-scroll. `nil`
+    /// when there is no active selection.
+    var selectionScrollAnchor: CGPoint?
+
     let webView: WebView
 
     private var lastClick: ClickEvent?
@@ -444,6 +449,7 @@ class EPUBSpreadView: UIView, Loggable, PageView {
     /// Called by the JavaScript layer when the user selection changed.
     private func selectionDidChange(_ body: Any) {
         if body is NSNull {
+            selectionScrollAnchor = nil
             focusedResource = nil
             delegate?.spreadView(self, selectionDidChange: nil, frame: .zero)
             return
@@ -456,10 +462,17 @@ class EPUBSpreadView: UIView, Loggable, PageView {
             let text = try? Locator.Text(json: JSONValue(selection["text"])),
             var frame = CGRect(json: selection["rect"])
         else {
+            selectionScrollAnchor = nil
             focusedResource = nil
             delegate?.spreadView(self, selectionDidChange: nil, frame: .zero)
             log(.warning, "Invalid body for selectionDidChange: \(body)")
             return
+        }
+
+        // Capture the page anchor on the first active selection callback so we
+        // can hold the page steady against WebKit's selection auto-scroll.
+        if selectionScrollAnchor == nil {
+            selectionScrollAnchor = scrollView.contentOffset
         }
 
         focusedResource = viewModel.readingOrder.firstIndexWithHREF(href)
