@@ -70,7 +70,12 @@ function onPointerCancel(event) {
 
 function onPointerEvent(phase, event) {
   // If the user is currently selecting text, we report this event as cancelled to prevent detecting gestures.
-  if (isSelecting) {
+  // `isSelecting` is a cache updated by the async `selectionchange` listener, so it lags behind the live
+  // DOM selection: a selection created by this very gesture (e.g. a long-press word selection near a page
+  // edge) is not yet reflected in the flag at `pointerup` time, letting that tap leak through and turn the
+  // page. Reading the selection directly closes the race.
+  const selection = window.getSelection();
+  if (isSelecting || (selection != null && !selection.isCollapsed)) {
     phase = "cancel";
   }
 
