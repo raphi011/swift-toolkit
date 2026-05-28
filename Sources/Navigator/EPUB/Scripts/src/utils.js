@@ -292,6 +292,34 @@ function snapCurrentPosition() {
   document.scrollingElement.scrollLeft = currentOffsetSnapped;
 }
 
+// Snaps the paginated view to the page containing the end (focus) of the
+// current selection, preserving the selection. Used when the user lifts their
+// finger after a selection drag that auto-scrolled across a page edge: WebKit's
+// selection auto-scroll leaves the view parked mid-column, so we realign to the
+// page holding the selection end instead of snapping to the nearest page (which
+// could scroll the selection end off screen).
+export function snapToSelectionFocus(animated) {
+  if (isScrollModeEnabled() || isVerticalWritingMode()) {
+    return;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.focusNode) {
+    return;
+  }
+  let focusRect;
+  try {
+    const range = document.createRange();
+    range.setStart(selection.focusNode, selection.focusOffset);
+    range.collapse(true);
+    focusRect = range.getBoundingClientRect();
+  } catch (e) {
+    return;
+  }
+  // Horizontal position of the selection end in document (scroll) coordinates.
+  const focusOffset = window.scrollX + focusRect.left;
+  scrollToOffset(snapOffset(focusOffset), animated);
+}
+
 export function rangeFromLocator(locator) {
   try {
     let locations = locator.locations;

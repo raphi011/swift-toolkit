@@ -7,6 +7,7 @@
 import { findDecorationTarget, handleDecorationClickEvent } from "./decorator";
 import { adjustPointToViewport } from "./rect";
 import { findNearestInteractiveElement } from "./dom";
+import { snapToSelectionFocus } from "./utils";
 import { getCssSelector } from "css-selector-generator";
 
 let isSelecting = false;
@@ -58,6 +59,14 @@ function onPointerDown(event) {
 
 function onPointerUp(event) {
   onPointerEvent("up", event);
+
+  // When the user lifts their finger after a selection drag that auto-scrolled
+  // across a page edge, the paginated view is left parked mid-column. Snap to
+  // the page holding the selection end, keeping the selection intact.
+  const selection = window.getSelection();
+  if (selection != null && !selection.isCollapsed) {
+    snapToSelectionFocus(true);
+  }
 }
 
 function onPointerMove(event) {
