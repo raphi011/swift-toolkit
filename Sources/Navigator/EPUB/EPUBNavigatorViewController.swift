@@ -17,10 +17,29 @@ import WebKit
     // MARK: - WebView Customization
 
     func navigator(_ navigator: EPUBNavigatorViewController, setupUserScripts userContentController: WKUserContentController)
+
+    // MARK: - Loading
+
+    /// Called when the *current* spread has finished loading its content and is
+    /// about to be revealed (the navigator's per-spread activity indicator stops
+    /// right after this returns). Fires for the spread at `currentIndex` only —
+    /// not for the adjacent spreads preloaded around it — so it tracks the page
+    /// the user actually sees: once on open, and again after each page turn.
+    ///
+    /// Hosts that show their own loading cover can use the first invocation to
+    /// dismiss it without exposing the navigator's built-in indicator or the
+    /// scroll to the initial location, both of which happen before this point.
+    /// Gating on the current spread matters: adjacent spreads load concurrently
+    /// (see `PaginationView.loadNextPage`) and, skipping the reflowable spread's
+    /// trailing settle delay, a fast neighbour can otherwise finish first and
+    /// dismiss the cover a beat before the visible spread is revealed.
+    func navigatorDidLoadSpread(_ navigator: EPUBNavigatorViewController)
 }
 
 public extension EPUBNavigatorDelegate {
     func navigator(_ navigator: EPUBNavigatorViewController, setupUserScripts userContentController: WKUserContentController) {}
+
+    func navigatorDidLoadSpread(_ navigator: EPUBNavigatorViewController) {}
 }
 
 public typealias EPUBContentInsets = (top: CGFloat, bottom: CGFloat)
@@ -1082,6 +1101,22 @@ extension EPUBNavigatorViewController: EPUBSpreadViewDelegate {
         }
 
         await spreadView.evaluateScript("(function() {\n\(script)\n})();")
+
+        // Notify the host that the *current* spread is painted and about to be
+        // revealed — the caller's `spreadDidLoad` Task calls `showSpread()`
+        // (which stops the activity indicator and fades the content in)
+        // immediately after this method returns.
+        //
+        // Only the current spread fires: adjacent spreads are preloaded
+        // concurrently with this one's trailing settle delay (see
+        // `PaginationView.loadNextPage`, which resumes the current spread's
+        // `go` continuation before its `delayed` sleep). A short neighbour
+        // skips that delay and can reach here first; firing for it would let a
+        // host dismiss its opening cover before this visible spread's
+        // `showSpread()` runs, briefly exposing the activity indicator.
+        if spreadView === paginationView?.currentView {
+            delegate?.navigatorDidLoadSpread(self)
+        }
     }
 
     func spreadView(_ spreadView: EPUBSpreadView, didReceive event: PointerEvent) {
