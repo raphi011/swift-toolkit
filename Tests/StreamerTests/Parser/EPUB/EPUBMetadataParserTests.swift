@@ -393,6 +393,46 @@ class EPUBMetadataParserTests: XCTestCase {
         XCTAssertNotNil(sut.otherMetadata["mediaOverlay"])
     }
 
+    // MARK: - ISBN
+
+    func testParseISBN13FromEPUB3IdentifierType() throws {
+        let sut = try parseMetadata("identifier-isbn-epub3")
+        XCTAssertEqual(sut.isbn, "9781449325862")
+    }
+
+    func testParseISBNFromEPUB2OPFScheme() throws {
+        let sut = try parseMetadata("identifier-isbn-epub2")
+        // Hyphens stripped from "978-1-4493-2586-2".
+        XCTAssertEqual(sut.isbn, "9781449325862")
+    }
+
+    func testParseISBNFromURN() throws {
+        let sut = try parseMetadata("identifier-isbn-urn")
+        XCTAssertEqual(sut.isbn, "9781449325862")
+    }
+
+    func testParseISBN10NormalizedToISBN13() throws {
+        let sut = try parseMetadata("identifier-isbn10")
+        XCTAssertEqual(sut.isbn, "9780306406157")
+    }
+
+    /// Calibre's EPUB 3 writer prefixes the scheme into the value text rather
+    /// than using the spec's `identifier-type` refinement.
+    func testParseISBNFromCalibreSchemePrefix() throws {
+        let sut = try parseMetadata("identifier-isbn-calibre")
+        XCTAssertEqual(sut.isbn, "9781449325862")
+    }
+
+    func testParseISBN10FromEPUB3IdentifierType() throws {
+        let sut = try parseMetadata("identifier-isbn-epub3-isbn10")
+        XCTAssertEqual(sut.isbn, "9780306406157")
+    }
+
+    func testNoISBNWhenOnlyUUIDIdentifiers() throws {
+        let sut = try parseMetadata("identifier-unique")
+        XCTAssertNil(sut.isbn)
+    }
+
     // MARK: - Toolkit
 
     func parseMetadata(_ name: String, displayOptions: String? = nil) throws -> Metadata {
