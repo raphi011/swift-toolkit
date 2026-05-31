@@ -41,6 +41,7 @@ final class EPUBMetadataParser: Loggable {
 
         var other = metas.otherMetadata
         if let mo = mediaOverlay() { other["mediaOverlay"] = .object(mo.jsonObject) }
+        if let isbn = isbn { other["isbn"] = .string(isbn) }
 
         return Metadata(
             identifier: uniqueIdentifier,
@@ -322,6 +323,77 @@ final class EPUBMetadataParser: Loggable {
     private lazy var uniqueIdentifier: String? =
         dcElement(tag: "identifier[@id=/opf:package/@unique-identifier]")?
             .stringValue
+
+    /// The publication's ISBN, normalized to ISBN-13.
+    ///
+    /// The package `unique-identifier` is usually a UUID, so the ISBN — when
+    /// present — is a *secondary* `dc:identifier` tagged via an `opf:scheme`
+    /// attribute (EPUB 2), an `identifier-type` ONIX Code List 5 value (EPUB 3),
+    /// or expressed as a `urn:isbn:` URN. Scans every `dc:identifier` and
+    /// returns the first that resolves to a valid ISBN.
+    private lazy var isbn: String? = metas["identifier", in: .dcterms]
+        .lazy
+        .compactMap { self.isbn(fromIdentifier: $0) }
+        .first
+
+    private func isbn(fromIdentifier meta: OPFMeta) -> String? {
+        // EPUB 3 (spec) tags the scheme with an `identifier-type` meta refining
+        // the `dc:identifier`, carrying an ONIX Code List 5 value (15 = ISBN-13,
+        // 02 = ISBN-10). EPUB 2 uses an `opf:scheme` attribute on the element.
+        // Calibre's EPUB 3 writer and the URN form instead prefix the value
+        // text (`isbn:…` / `urn:isbn:…`).
+        let onixCode = meta.id.flatMap { metas["identifier-type", refining: $0].first?.content }
+        let value = meta.content.lowercased()
+        let isISBN =
+            value.hasPrefix("urn:isbn:")
+                || value.hasPrefix("isbn:")
+                || meta.element.attr("scheme")?.caseInsensitiveCompare("isbn") == .orderedSame
+                || onixCode == "15"
+                || onixCode == "02"
+        guard isISBN else { return nil }
+        return Self.normalizedISBN13(from: meta.content)
+    }
+
+    /// Strips separators from a raw identifier value and normalizes it to a
+    /// valid ISBN-13, converting ISBN-10 when needed. nil if not a valid ISBN.
+    private static func normalizedISBN13(from raw: String) -> String? {
+        let cleaned = raw.uppercased().filter { $0.isNumber || $0 == "X" }
+        if cleaned.count == 13, isValidISBN13(cleaned) { return cleaned }
+        if cleaned.count == 10 { return isbn13(fromISBN10: cleaned) }
+        return nil
+    }
+
+    private static func isValidISBN13(_ isbn: String) -> Bool {
+        let digits = isbn.compactMap(\.wholeNumberValue)
+        guard digits.count == 13 else { return false }
+        let sum = digits.enumerated().reduce(0) { $0 + $1.element * ($1.offset.isMultiple(of: 2) ? 1 : 3) }
+        return sum.isMultiple(of: 10)
+    }
+
+    /// Validates an ISBN-10 and converts it to its ISBN-13 form. nil if invalid.
+    private static func isbn13(fromISBN10 isbn: String) -> String? {
+        let chars = Array(isbn)
+        guard chars.count == 10 else { return nil }
+        var sum = 0
+        for (i, c) in chars.enumerated() {
+            let value: Int
+            if c == "X", i == 9 {
+                value = 10
+            } else if let digit = c.wholeNumberValue {
+                value = digit
+            } else {
+                return nil
+            }
+            sum += value * (10 - i)
+        }
+        guard sum.isMultiple(of: 11) else { return nil }
+
+        let core = "978" + String(chars.prefix(9))
+        let coreDigits = core.compactMap(\.wholeNumberValue)
+        let checkSum = coreDigits.enumerated().reduce(0) { $0 + $1.element * ($1.offset.isMultiple(of: 2) ? 1 : 3) }
+        let check = (10 - checkSum % 10) % 10
+        return core + String(check)
+    }
 
     /// https://github.com/readium/architecture/blob/master/streamer/parser/metadata.md#publication-date
     private lazy var publishedDate =
