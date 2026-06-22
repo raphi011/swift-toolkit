@@ -74,6 +74,22 @@ public struct EditingAction: Hashable {
             return item
         }
     }
+
+    /// Title of a custom editing action. Nil for native actions.
+    public var title: String? {
+        switch kind {
+        case .native:
+            return nil
+        case let .custom(item):
+            return item.title
+        }
+    }
+
+    /// Whether this is a custom (non-native) action.
+    public var isCustom: Bool {
+        if case .custom = kind { return true }
+        return false
+    }
 }
 
 protocol EditingActionsControllerDelegate: AnyObject {
@@ -85,6 +101,9 @@ protocol EditingActionsControllerDelegate: AnyObject {
 /// Handles the authorization and check of editing actions.
 final class EditingActionsController {
     weak var delegate: EditingActionsControllerDelegate?
+
+    /// Called when a custom menu action built via `buildMenu` is tapped.
+    var onCustomActionTriggered: ((Selector) -> Void)?
 
     private let actions: [EditingAction]
     private let rights: UserRights
@@ -124,15 +143,24 @@ final class EditingActionsController {
         }
 
         guard
-            isEnabled,
-            let selection = selection,
             let action = actions.first(where: { $0.actions.contains(selector) }),
             isActionAllowed(action)
         else {
             return false
         }
 
-        return delegate?.editingActions(self, canPerformAction: action, for: selection) ?? true
+        // Custom actions: allow even before the async JS selection notification
+        // arrives. The system only calls canPerformAction when WKWebView has a
+        // native selection — Readium's async confirmation is redundant here.
+        if action.isCustom {
+            return true
+        }
+
+        guard isEnabled, selection != nil else {
+            return false
+        }
+
+        return delegate?.editingActions(self, canPerformAction: action, for: selection!) ?? true
     }
 
     /// Verifies that the user has the rights to use the given `action`.
@@ -158,17 +186,50 @@ final class EditingActionsController {
         // Expansion setting which allows to copy the selection.
         // To reproduce, comment out and select Japanese text on a PDF.
         builder.remove(menu: .learn)
+
+        // Custom actions are inserted into the selection edit menu via
+        // `buildMenu` only on iOS 16+, where `UIEditMenuInteraction` consults
+        // it synchronously — fixing the double-tap race where the menu appeared
+        // before the async JS→native selection pipeline populated the legacy
+        // `UIMenuController` items. On iOS 15 they are provided through
+        // `updateSharedMenuController()` instead.
+        guard #available(iOS 16.0, *) else { return }
+
+        let customActions: [UIAction] = actions
+            .filter(\.isCustom)
+            .compactMap { action in
+                guard let title = action.title,
+                      let selector = action.actions.first else { return nil }
+                let sel = selector
+                return UIAction(title: title) { [weak self] _ in
+                    self?.onCustomActionTriggered?(sel)
+                }
+            }
+
+        if !customActions.isEmpty {
+            let menu = UIMenu(title: "", options: .displayInline, children: customActions)
+            builder.insertChild(menu, atStartOfMenu: .standardEdit)
+        }
     }
 
     func updateSharedMenuController() {
-        var items: [UIMenuItem] = []
-        if isEnabled, let selection = selection {
-            items = actions
-                .filter { delegate?.editingActions(self, canPerformAction: $0, for: selection) ?? true }
-                .compactMap(\.menuItem)
+        if #available(iOS 16.0, *) {
+            // The text-selection edit menu (`UIEditMenuInteraction`) is built
+            // through `buildMenu(with:)`, so custom actions are inserted there.
+            // `UIMenuController` is unused; clear any stale items.
+            UIMenuController.shared.menuItems = []
+        } else {
+            // On iOS 15 the selection callout still uses `UIMenuController`,
+            // which is not consulted by `buildMenu`. Populate its items here.
+            var items: [UIMenuItem] = []
+            if isEnabled, let selection = selection {
+                items = actions
+                    .filter { delegate?.editingActions(self, canPerformAction: $0, for: selection) ?? true }
+                    .compactMap(\.menuItem)
+            }
+            UIMenuController.shared.menuItems = items
+            UIMenuController.shared.update()
         }
-        UIMenuController.shared.menuItems = items
-        UIMenuController.shared.update()
     }
 
     // MARK: - Copy
