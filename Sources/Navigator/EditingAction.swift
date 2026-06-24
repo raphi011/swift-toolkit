@@ -144,23 +144,17 @@ final class EditingActionsController {
 
         guard
             let action = actions.first(where: { $0.actions.contains(selector) }),
-            isActionAllowed(action)
+            isActionAllowed(action),
+            isEnabled,
+            let selection = selection
         else {
             return false
         }
 
-        // Custom actions: allow even before the async JS selection notification
-        // arrives. The system only calls canPerformAction when WKWebView has a
-        // native selection — Readium's async confirmation is redundant here.
-        if action.isCustom {
-            return true
-        }
-
-        guard isEnabled, selection != nil else {
-            return false
-        }
-
-        return delegate?.editingActions(self, canPerformAction: action, for: selection!) ?? true
+        // Native and custom actions share the same gating: the host app can
+        // suppress the whole menu via `shouldShowMenuForSelection` (reflected in
+        // `isEnabled`) and disable individual actions via `canPerformAction`.
+        return delegate?.editingActions(self, canPerformAction: action, for: selection) ?? true
     }
 
     /// Verifies that the user has the rights to use the given `action`.
@@ -193,16 +187,19 @@ final class EditingActionsController {
         // before the async JS→native selection pipeline populated the legacy
         // `UIMenuController` items. On iOS 15 they are provided through
         // `updateSharedMenuController()` instead.
+        //
+        // They go through `canPerformAction` like native actions, so the host
+        // app can suppress them with `shouldShowMenuForSelection` or disable
+        // them individually through `canPerformAction(_:for:)`.
         guard #available(iOS 16.0, *) else { return }
 
         let customActions: [UIAction] = actions
-            .filter(\.isCustom)
+            .filter { $0.isCustom && canPerformAction($0) }
             .compactMap { action in
                 guard let title = action.title,
                       let selector = action.actions.first else { return nil }
-                let sel = selector
                 return UIAction(title: title) { [weak self] _ in
-                    self?.onCustomActionTriggered?(sel)
+                    self?.onCustomActionTriggered?(selector)
                 }
             }
 
