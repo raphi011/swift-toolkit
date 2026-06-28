@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file. Take a look at [the migration guide](docs/Migration%20Guide.md) to upgrade between two major versions.
 
-<!-- ## [Unreleased] -->
+## [Unreleased]
+
+### Added
+
+#### Shared
+
+* The EPUB parser now exposes the publication's ISBNs through the new `metadata.isbns` property. ISBNs are read from the OPF `dc:identifier` elements, recognized via an `opf:scheme="ISBN"` attribute (EPUB 2), an `identifier-type` ONIX code (EPUB 3), a `urn:isbn:` URN, or Calibre's `isbn:` value prefix. Each value is returned as declared (scheme prefix and separators removed); a publication may expose more than one (e.g. its ISBN-10 and ISBN-13).
+
 
 ## [3.10.0] - 2026-06-24
 
