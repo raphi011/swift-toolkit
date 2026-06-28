@@ -41,6 +41,7 @@ final class EPUBMetadataParser: Loggable {
 
         var other = metas.otherMetadata
         if let mo = mediaOverlay() { other["mediaOverlay"] = .object(mo.jsonObject) }
+        if !isbns.isEmpty { other["isbn"] = .array(isbns.map { .string($0) }) }
 
         return Metadata(
             identifier: uniqueIdentifier,
@@ -322,6 +323,49 @@ final class EPUBMetadataParser: Loggable {
     private lazy var uniqueIdentifier: String? =
         dcElement(tag: "identifier[@id=/opf:package/@unique-identifier]")?
             .stringValue
+
+    /// The publication's ISBNs, as declared in the OPF.
+    ///
+    /// The package `unique-identifier` is usually a UUID, so an ISBN — when
+    /// present — is a *secondary* `dc:identifier` tagged via an `opf:scheme`
+    /// attribute (EPUB 2), an `identifier-type` ONIX Code List 5 refinement
+    /// (EPUB 3), or expressed as a `urn:isbn:` URN. A publication may declare
+    /// more than one (e.g. the ISBN-10 and ISBN-13 of the same book, or distinct
+    /// ISBNs per format), so every matching `dc:identifier` is returned, in
+    /// document order with duplicates removed. Values are surfaced as declared,
+    /// with only the scheme prefix and separators stripped — no normalization.
+    private lazy var isbns: [String] = {
+        var seen = Set<String>()
+        return metas["identifier", in: .dcterms]
+            .filter { isISBNIdentifier($0) }
+            .compactMap { Self.cleanedISBN($0.content) }
+            .filter { seen.insert($0).inserted }
+    }()
+
+    private func isISBNIdentifier(_ meta: OPFMeta) -> Bool {
+        // EPUB 3 (spec) tags the scheme with an `identifier-type` meta refining
+        // the `dc:identifier`, carrying an ONIX Code List 5 value (15 = ISBN-13,
+        // 02 = ISBN-10). EPUB 2 uses an `opf:scheme` attribute on the element.
+        // Calibre's EPUB 3 writer and the URN form instead prefix the value
+        // text (`isbn:…` / `urn:isbn:…`).
+        let value = meta.content.lowercased()
+        if value.hasPrefix("urn:isbn:") || value.hasPrefix("isbn:") { return true }
+        if meta.element.attr("scheme")?.caseInsensitiveCompare("isbn") == .orderedSame { return true }
+        let onixCode = meta.id.flatMap { metas["identifier-type", refining: $0].first?.content }
+        return onixCode == "15" || onixCode == "02"
+    }
+
+    /// Strips the scheme prefix (`urn:isbn:` / `isbn:`) and separators from a raw
+    /// identifier value, returning the bare ISBN as declared. nil when empty.
+    private static func cleanedISBN(_ raw: String) -> String? {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["urn:isbn:", "isbn:"] where value.lowercased().hasPrefix(prefix) {
+            value = String(value.dropFirst(prefix.count))
+            break
+        }
+        value = value.filter { !$0.isWhitespace && $0 != "-" }
+        return value.isEmpty ? nil : value
+    }
 
     /// https://github.com/readium/architecture/blob/master/streamer/parser/metadata.md#publication-date
     private lazy var publishedDate =

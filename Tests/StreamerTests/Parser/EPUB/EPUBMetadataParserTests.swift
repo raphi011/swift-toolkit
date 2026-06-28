@@ -393,6 +393,60 @@ class EPUBMetadataParserTests: XCTestCase {
         XCTAssertNotNil(sut.otherMetadata["mediaOverlay"])
     }
 
+    // MARK: - ISBN
+
+    func testParseISBN13FromEPUB3IdentifierType() throws {
+        let sut = try parseMetadata("identifier-isbn-epub3")
+        XCTAssertEqual(sut.isbns, ["9781449325862"])
+    }
+
+    func testParseISBNFromEPUB2OPFScheme() throws {
+        let sut = try parseMetadata("identifier-isbn-epub2")
+        // Hyphens stripped from "978-1-4493-2586-2".
+        XCTAssertEqual(sut.isbns, ["9781449325862"])
+    }
+
+    func testParseISBNFromURN() throws {
+        let sut = try parseMetadata("identifier-isbn-urn")
+        XCTAssertEqual(sut.isbns, ["9781449325862"])
+    }
+
+    /// ISBN-10 values are returned as declared, not converted to ISBN-13.
+    func testParseISBN10FromEPUB2OPFScheme() throws {
+        let sut = try parseMetadata("identifier-isbn10")
+        XCTAssertEqual(sut.isbns, ["0306406152"])
+    }
+
+    /// Calibre's EPUB 3 writer prefixes the scheme into the value text rather
+    /// than using the spec's `identifier-type` refinement.
+    func testParseISBNFromCalibreSchemePrefix() throws {
+        let sut = try parseMetadata("identifier-isbn-calibre")
+        XCTAssertEqual(sut.isbns, ["9781449325862"])
+    }
+
+    func testParseISBN10FromEPUB3IdentifierType() throws {
+        let sut = try parseMetadata("identifier-isbn-epub3-isbn10")
+        XCTAssertEqual(sut.isbns, ["0306406152"])
+    }
+
+    /// A publication may declare several ISBNs (e.g. ISBN-13 and ISBN-10); all
+    /// are returned, in document order.
+    func testParseMultipleISBNs() throws {
+        let sut = try parseMetadata("identifier-isbn-multiple")
+        XCTAssertEqual(sut.isbns, ["9781449325862", "1449325866"])
+    }
+
+    /// The same ISBN declared under more than one scheme is returned once.
+    func testParseDuplicateISBNsAreDeduplicated() throws {
+        let sut = try parseMetadata("identifier-isbn-duplicate")
+        XCTAssertEqual(sut.isbns, ["9781449325862"])
+    }
+
+    func testNoISBNWhenOnlyUUIDIdentifiers() throws {
+        let sut = try parseMetadata("identifier-unique")
+        XCTAssertEqual(sut.isbns, [])
+    }
+
     // MARK: - Toolkit
 
     func parseMetadata(_ name: String, displayOptions: String? = nil) throws -> Metadata {
