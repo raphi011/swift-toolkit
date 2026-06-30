@@ -54,7 +54,16 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         scrollView.alwaysBounceVertical = false
         scrollView.alwaysBounceHorizontal = false
 
-        scrollView.isPagingEnabled = !viewModel.scroll
+        // Own the column paging natively instead of relying on
+        // `UIScrollView.isPagingEnabled`. A paging scroll view keeps its own
+        // notion of the current page and re-snaps `contentOffset` to it on
+        // layout changes — including when iOS restores the view on a
+        // background→foreground transition. Because the page position here is
+        // driven by JavaScript (`window.scrollBy`), not UIKit, that re-snap can
+        // land one column off. With paging disabled we snap manually in
+        // `scrollViewWillEndDragging`.
+        scrollView.isPagingEnabled = false
+        scrollView.decelerationRate = viewModel.scroll ? .normal : .fast
 
         webView.translatesAutoresizingMaskIntoConstraints = false
         topConstraint = webView.topAnchor.constraint(equalTo: topAnchor)
@@ -90,8 +99,10 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
     override func applySettings() {
         super.applySettings()
 
-        // Disables paginated mode if scroll is on.
-        scrollView.isPagingEnabled = !viewModel.scroll
+        // Native column paging (see `setupWebView`): keep UIScrollView paging
+        // off and snap manually.
+        scrollView.isPagingEnabled = false
+        scrollView.decelerationRate = viewModel.scroll ? .normal : .fast
 
         updateContentInset()
     }
@@ -430,10 +441,51 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         webView.removeDoubleTapGestureRecognizer()
     }
 
+    // MARK: - Native column paging
+
+    /// Width of a single paginated column (one page). Zero in scroll mode or
+    /// before the first layout.
+    private var pageWidth: CGFloat {
+        viewModel.scroll ? 0 : scrollView.bounds.width
+    }
+
+    /// Snaps a free-scrolling drag to the nearest column boundary, with a clear
+    /// fling advancing at least one column in its direction. Replaces the
+    /// snapping `UIScrollView.isPagingEnabled` used to provide now that we own
+    /// the column paging (see `setupWebView`). Operates purely on the
+    /// non-negative UIKit `contentOffset`, where columns sit at multiples of the
+    /// page width, so it is correct for both reading directions.
+    private func snapTargetToColumn(
+        velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        let page = pageWidth
+        guard page > 0 else { return }
+        let current = (scrollView.contentOffset.x / page).rounded()
+        var target = (targetContentOffset.pointee.x / page).rounded()
+        if velocity.x > 0.1 {
+            target = max(target, current + 1)
+        } else if velocity.x < -0.1 {
+            target = min(target, current - 1)
+        }
+        let maxColumn = max(0, ((scrollView.contentSize.width - page) / page).rounded())
+        target = min(max(target, 0), maxColumn)
+        targetContentOffset.pointee.x = target * page
+    }
+
     // MARK: - UIScrollViewDelegate
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         super.scrollViewDidScroll(scrollView)
         setNeedsNotifyPagesDidChange()
+    }
+
+    override func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        guard !viewModel.scroll else { return }
+        snapTargetToColumn(velocity: velocity, targetContentOffset: targetContentOffset)
     }
 }

@@ -684,6 +684,22 @@ extension EPUBSpreadView: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Do not remove, overridden in subclasses.
     }
+
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        // Do not remove, overridden in subclasses.
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        // Do not remove, overridden in subclasses.
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        // Do not remove, overridden in subclasses.
+    }
 }
 
 extension EPUBSpreadView: WKUIDelegate {}
