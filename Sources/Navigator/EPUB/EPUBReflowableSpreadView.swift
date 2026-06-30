@@ -75,6 +75,19 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             webView.leadingAnchor.constraint(equalTo: leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+
+        // Re-pin the column on foreground. `didBecomeActive` fires while iOS is
+        // still showing the app snapshot, before the live web view is revealed,
+        // so correcting the offset here lands *before* the reveal — no visible
+        // one-column flash. This is the trigger that actually fires on a plain
+        // background→foreground (no relayout), unlike `layoutSubviews`.
+        // Observer removed by the base class `deinit` (`removeObserver(self)`).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reassertColumnAfterForeground),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     override func safeAreaInsetsDidChange() {
@@ -504,6 +517,12 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         let page = pageWidth
         guard page > 0, !isReassertingColumn else { return }
         currentColumn = Int((scrollView.contentOffset.x / page).rounded())
+        // Tie the captured column to the grid width it was captured against, so
+        // a later re-assert (foreground / same-width relayout) recognises an
+        // unchanged grid. Without this, `lastReconciledWidth` could stay 0 on a
+        // spread that loaded, scrolled to position and then sat idle (its
+        // `layoutSubviews` width-set branch never ran), blocking the re-assert.
+        lastReconciledWidth = scrollView.bounds.width
     }
 
     override func layoutSubviews() {
@@ -523,14 +542,31 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             return
         }
 
-        // Same column grid, but the offset moved with no user or programmatic
-        // input — e.g. iOS re-snapping the (formerly paging) scroll view on a
-        // background→foreground transition. Re-assert the reader's column.
+        reassertColumnIfDrifted()
+    }
+
+    /// Re-pin `contentOffset.x` to the source-of-truth column when it has
+    /// drifted off it with no user/JS input on an unchanged column grid — e.g.
+    /// iOS/WebKit re-clamping the scroll offset one column back after a
+    /// background→foreground content-process purge. Idempotent and safe to call
+    /// from any trigger (`layoutSubviews`, `didBecomeActive`).
+    private func reassertColumnIfDrifted() {
+        guard
+            !viewModel.scroll, isSpreadLoaded, pageWidth > 0,
+            !scrollView.isDragging, !scrollView.isDecelerating,
+            pendingScrollAnimation == nil,
+            scrollView.bounds.width == lastReconciledWidth
+        else { return }
+
         let expectedX = CGFloat(currentColumn) * pageWidth
         guard abs(scrollView.contentOffset.x - expectedX) > 0.5 else { return }
         isReassertingColumn = true
         scrollView.contentOffset.x = expectedX
         isReassertingColumn = false
+    }
+
+    @objc private func reassertColumnAfterForeground() {
+        reassertColumnIfDrifted()
     }
 
     // MARK: - UIScrollViewDelegate
