@@ -197,6 +197,11 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             return false
         }
 
+        // The column index is the source of truth; update it for this turn up
+        // front so a concurrent `layoutSubviews` re-assert can't revert the
+        // JS-driven scroll before it settles.
+        currentColumn = Int((targetX / scrollView.bounds.width).rounded())
+
         // We use JavaScript instead of `UIScrollView.setContentOffset()` to
         // prevent glitches when turning pages without animation.
         // See https://github.com/readium/swift-toolkit/issues/737#issuecomment-4090386881
@@ -255,6 +260,9 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             await scroll(toProgression: 1, animated: animated)
         }
 
+        // Programmatic move settled (resume, ToC jump, scrub, start/end) —
+        // adopt the landed column as the source of truth.
+        captureCurrentColumn()
         didCompleteGoTo()
     }
 
@@ -473,6 +481,58 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         targetContentOffset.pointee.x = target * page
     }
 
+    /// Column index currently snapped to the leading edge — the source of truth
+    /// for the horizontal position in paginated mode. The scroll offset is a
+    /// derived value re-asserted from this after a same-width relayout (see
+    /// `layoutSubviews`), so an external re-snap (e.g. iOS restoring the
+    /// paginated scroll view on foreground) can't silently leave the reader one
+    /// column off. Tracked in non-negative UIKit column space → reading-
+    /// direction agnostic.
+    private var currentColumn = 0
+    /// Page width the column index was last reconciled against. Tells a reflow
+    /// (width changed → index meaningless, the navigator re-pins to the saved
+    /// locator) from a re-snap (width unchanged → re-assert the column).
+    private var lastReconciledWidth: CGFloat = 0
+    /// Guards the re-assert from being mistaken for a user/JS scroll.
+    private var isReassertingColumn = false
+
+    /// Records the column under the leading edge as the source of truth. Called
+    /// when a scroll settles from genuine intent (user drag end, programmatic
+    /// `go`), never from a passive scroll report — so a stray re-snap can't
+    /// overwrite the truth before `layoutSubviews` corrects it.
+    private func captureCurrentColumn() {
+        let page = pageWidth
+        guard page > 0, !isReassertingColumn else { return }
+        currentColumn = Int((scrollView.contentOffset.x / page).rounded())
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard
+            !viewModel.scroll, isSpreadLoaded, pageWidth > 0,
+            !scrollView.isDragging, !scrollView.isDecelerating,
+            pendingScrollAnimation == nil
+        else { return }
+
+        guard scrollView.bounds.width == lastReconciledWidth else {
+            // Column width changed (rotation / font size / Split View): the
+            // index no longer maps to the same content and the navigator
+            // re-pins to the saved locator. Re-baseline against the new grid.
+            lastReconciledWidth = scrollView.bounds.width
+            captureCurrentColumn()
+            return
+        }
+
+        // Same column grid, but the offset moved with no user or programmatic
+        // input — e.g. iOS re-snapping the (formerly paging) scroll view on a
+        // background→foreground transition. Re-assert the reader's column.
+        let expectedX = CGFloat(currentColumn) * pageWidth
+        guard abs(scrollView.contentOffset.x - expectedX) > 0.5 else { return }
+        isReassertingColumn = true
+        scrollView.contentOffset.x = expectedX
+        isReassertingColumn = false
+    }
+
     // MARK: - UIScrollViewDelegate
 
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -487,5 +547,13 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
     ) {
         guard !viewModel.scroll else { return }
         snapTargetToColumn(velocity: velocity, targetContentOffset: targetContentOffset)
+    }
+
+    override func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { captureCurrentColumn() }
+    }
+
+    override func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        captureCurrentColumn()
     }
 }
