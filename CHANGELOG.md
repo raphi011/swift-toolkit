@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file. Take a look
 #### Navigator
 
 * Fixed custom `EditingAction`s sometimes missing from the text-selection menu for double-tap (single word) selections (contributed by [@raphi011](https://github.com/readium/swift-toolkit/pull/822)).
+* `EPUBNavigatorViewController` no longer adopts `currentLocation` updates while the application is inactive. Locations computed while the app is backgrounded (app switcher snapshot passes, WebKit reloads) could reflect a transient scroll position and overwrite the reading progression; the update is now deferred until the app becomes active again.
 
 
 ## [3.10.0] - 2026-06-24
