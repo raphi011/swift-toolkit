@@ -725,7 +725,17 @@ open class EPUBNavigatorViewController: InputObservableViewController,
 
     private lazy var updateCurrentLocation = execute(
         // If we're not in an `idle` state, we postpone the notification.
-        when: { [weak self] in self?.state == .idle },
+        //
+        // The location is also postponed while the app is not active,
+        // symmetric to `needsReloadSpreadsOnActive`: while the app is
+        // backgrounded, iOS renders the app switcher snapshots (running
+        // appearance/layout passes for both color schemes) and WebKit may
+        // reload or re-lay out the web views. A location computed in that
+        // window can reflect a transient scroll position the user never saw;
+        // adopting it would overwrite `currentLocation` and mislead any
+        // observer persisting the reading progression. The pending update
+        // runs once the app becomes active again, against the settled layout.
+        when: { [weak self] in self?.state == .idle && self?.isActive == true },
         pollingInterval: 0.1
     ) { [weak self] in
         guard let self = self else {

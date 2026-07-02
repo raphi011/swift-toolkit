@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file. Take a look at [the migration guide](docs/Migration%20Guide.md) to upgrade between two major versions.
 
-<!-- ## [Unreleased] -->
+## [Unreleased]
+
+### Fixed
+
+#### Navigator
+
+* `EPUBNavigatorViewController` no longer adopts `currentLocation` updates while the application is inactive. Locations computed while the app is backgrounded (app switcher snapshot passes, WebKit reloads) could reflect a transient scroll position and overwrite the reading progression; the update is now deferred until the app becomes active again.
 
 ## [3.11.0] - 2026-07-17
 
