@@ -36,6 +36,15 @@ public protocol VisualNavigator: Navigator, InputObservable {
 
     /// Returns the `Locator` to the first content element that begins on the
     /// current screen.
+    ///
+    /// Note that restoring this locator with `go(to:)` lands on the page on
+    /// which that element *begins*. When the visible page starts mid-element —
+    /// e.g. mid-paragraph in a paginated reflowable publication — that is one
+    /// page before the current one. Keep this bias in mind when using the
+    /// capture-and-restore idiom to preserve the reading position: it is the
+    /// right anchor when the page grid itself changed (font size, margins,
+    /// column count), but restoring `currentLocation` is more precise when the
+    /// layout did not change.
     func firstVisibleElementLocator() async -> Locator?
 }
 
