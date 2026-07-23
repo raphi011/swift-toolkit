@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "title": "Search: nomatch",
+    "numberOfItems": 0
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "/opds/search?q=nomatch",
+      "type": "application/opds+json"
+    },
+    {
+      "rel": "search",
+      "href": "/opds/search?q={searchTerms}",
+      "type": "application/opds+json",
+      "templated": true
+    }
+  ]
+}
