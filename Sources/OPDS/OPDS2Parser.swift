@@ -57,16 +57,27 @@ public class OPDS2Parser: Loggable {
         }
 
         do {
-            if topLevelDict["navigation"] == nil,
-               topLevelDict["groups"] == nil,
-               topLevelDict["publications"] == nil,
-               topLevelDict["facets"] == nil
-            {
+            // Feed vs Publication disambiguation. Per the OPDS 2.0 spec the media
+            // type is authoritative: a feed is `application/opds+json`, a
+            // publication is `application/opds-publication+json`. So a document
+            // that carries no feed collection is only a Publication when it does
+            // NOT declare the feed media type. This lets an *empty* feed — a
+            // zero-result feed of `metadata` + `links` with no navigation /
+            // groups / publications / facets, the shape servers such as Komga
+            // (`@JsonInclude(NON_EMPTY)`) emit for an empty search — parse as the
+            // empty feed it is, instead of being misread as a publication and
+            // yielding neither a feed nor a publication.
+            let declaresFeed = (response.mimeType.flatMap { MediaType($0) })?.matches(.opds2) ?? false
+            let hasFeedCollection = topLevelDict["navigation"] != nil
+                || topLevelDict["groups"] != nil
+                || topLevelDict["publications"] != nil
+                || topLevelDict["facets"] != nil
+            if hasFeedCollection || declaresFeed {
+                // Feed (including an empty feed)
+                parseData.feed = try parse(feedURL: url, jsonDict: topLevelDict)
+            } else {
                 // Publication only
                 parseData.publication = try Publication(json: jsonRoot)
-            } else {
-                // Feed
-                parseData.feed = try parse(feedURL: url, jsonDict: topLevelDict)
             }
         } catch {
             log(.warning, error)
